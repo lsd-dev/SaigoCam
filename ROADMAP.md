@@ -15,7 +15,8 @@ Status key: ✅ done · 🧪 written, not yet built or verified · 🔜 next · 
 | 🧪 | Camera released when not in use; service stops when idle; resolutions limited to both cameras |
 | 🧪 | Unit tests (`StreamSettingsTest`), screenshot test, CI runs tests and lint |
 | ✅ | Glass-to-glass latency method and clock page |
-| 🔜 | **Put the project in git, get CI green, test on a real phone** |
+| ✅ | Project on GitHub (`lsd-dev/SaigoCam`); receiver CI green on Linux and Windows; APK compiles on CI |
+| 🔜 | **Get the unit tests green on CI (first run failed: Robolectric needs JDK 21 for SDK 36), then test on a real phone** |
 | 🔜 | **First baseline measurements**: VLC Source vs Media Source vs ffplay vs receiver; keyframe modes; 30 vs 60 fps; Wi-Fi vs USB |
 | ✅ | Application ID / package name: `io.github.lsd_dev.saigocam` (never change after the first release) |
 

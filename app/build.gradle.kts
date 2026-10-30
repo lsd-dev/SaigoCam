@@ -54,7 +54,24 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        // Robolectric with native graphics loads a full Android image; Gradle's default
+        // 512 MB test heap is tight for that. A precaution, not a measured need.
+        it.maxHeapSize = "2g"
+        // Print why a test failed straight into the console, so CI logs are enough
+        // to diagnose a failure without downloading the HTML report.
+        it.testLogging {
+          events("failed")
+          exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+          showCauses = true
+          showStackTraces = true
+        }
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

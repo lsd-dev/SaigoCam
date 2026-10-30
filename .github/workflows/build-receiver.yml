@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install toolchain and libraries
         run: |
@@ -48,7 +48,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
@@ -86,7 +86,7 @@ jobs:
           ls -la dist
 
       - name: Upload receiver
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SaigoCam-receiver-windows
           path: dist/

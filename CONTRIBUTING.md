@@ -20,7 +20,9 @@ easiest way. From the command line:
 ./gradlew :app:assembleDebug
 ```
 
-Unit tests (they run on the JVM with Robolectric, no device needed):
+Unit tests (they run on the JVM with Robolectric, no device needed). They need **JDK 21**:
+Robolectric runs them against Android 16 (SDK 36) and only supports that SDK on JDK 21, so on
+JDK 17 every Robolectric test fails before it starts.
 
 ```bash
 ./gradlew :app:testDebugUnitTest

@@ -13,18 +13,21 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      # JDK 21, not 17: the unit tests run on Robolectric against Android 16 (SDK 36),
+      # and Robolectric 4.16+ requires JDK 21 for that SDK. The APK itself builds on 17.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       # Wrapper validation stays on: it checks the committed gradle-wrapper.jar
       # against Gradle's published checksums, guarding against a tampered jar.
+      # v5 rather than v6: v6 moved its caching into a separately licensed component.
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -34,13 +37,44 @@ jobs:
 
       # Uploaded before tests so a test failure still leaves an APK to try on a phone
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SaigoCam-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      # Job logs need a GitHub login, but annotations show on the public run page. So on a
+      # failure, turn each failed test into an error annotation (first line of the message)
+      # and print the full failure text to the log.
+      - name: Report failed tests
+        if: failure()
+        run: |
+          python3 - <<'EOF'
+          import glob
+          import xml.etree.ElementTree as ET
+
+          def escape(text, extra=""):
+              # Workflow-command escaping: % and newlines always; ':' and ',' inside properties
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              for ch in extra:
+                  text = text.replace(ch, "%{:02X}".format(ord(ch)))
+              return text
+
+          failed = 0
+          for path in sorted(glob.glob("app/build/test-results/**/*.xml", recursive=True)):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  for problem in list(case.findall("failure")) + list(case.findall("error")):
+                      failed += 1
+                      name = "{}.{}".format(case.get("classname"), case.get("name"))
+                      message = (problem.get("message") or problem.text or "").strip()
+                      first_line = message.splitlines()[0] if message else "failed"
+                      print("::error title={}::{}".format(
+                          escape("Test failed: " + name, ":,"), escape(first_line[:900])))
+                      print("--- {}\n{}\n".format(name, (problem.text or message)[:4000]))
+          print("{} failed test(s) found in app/build/test-results".format(failed))
+          EOF
 
       # Report-only until the existing lint findings have been triaged;
       # remove continue-on-error once lint is clean.
@@ -50,10 +84,11 @@ jobs:
 
       - name: Upload test and lint reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SaigoCam-reports
           path: |
             app/build/reports/tests/
+            app/build/test-results/
             app/build/reports/lint-results-debug.html
           if-no-files-found: ignore

@@ -54,7 +54,7 @@ See [docs/LATENCY.md](docs/LATENCY.md) for the glass-to-glass procedure and the 
 [`receiver/`](receiver/README.md) holds a minimal-buffering desktop viewer (C, FFmpeg + SDL2) meant to measure how much latency VLC and OBS add on the PC side, and to become the base for an OBS plugin. It has not been run against a phone yet. CI builds it on Linux and Windows and uploads a ready-to-run `SaigoCam-receiver-windows` artifact; its README has local build steps and a zero-code `ffplay` baseline command.
 
 ## 🔧 Build from source
-Requires a JDK 17+ and either Android Studio (a version that supports AGP 9.1) or the Android SDK on the command line.
+Requires JDK 21 and either Android Studio (a version that supports AGP 9.1) or the Android SDK on the command line. The APK itself also builds on JDK 17, but the unit tests run on Robolectric against Android 16 (SDK 36), which Robolectric only supports on JDK 21.
 
 ```bash
 ./gradlew :app:assembleDebug
