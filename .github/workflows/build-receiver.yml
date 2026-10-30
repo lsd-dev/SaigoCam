@@ -1,0 +1,92 @@
+name: Build Receiver
+
+# Builds the desktop receiver prototype in receiver/ so it can be verified and tried
+# without installing a C toolchain locally. The Windows job uploads a ready-to-run folder.
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - "receiver/**"
+      - ".github/workflows/build-receiver.yml"
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - "receiver/**"
+      - ".github/workflows/build-receiver.yml"
+  workflow_dispatch:
+
+jobs:
+  # Fast compile check with distro packages; also proves the code isn't Windows-only.
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install toolchain and libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libavformat-dev libavcodec-dev libavutil-dev libsdl2-dev
+
+      - name: Configure
+        run: cmake -S receiver -B receiver/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build receiver/build
+
+      - name: Unit tests
+        run: ctest --test-dir receiver/build --output-on-failure
+
+  # The build users will actually run. MSYS2 supplies GCC, CMake, FFmpeg and SDL2 in one go.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (UCRT64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-SDL2
+
+      - name: Configure
+        run: cmake -S receiver -B receiver/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build receiver/build
+
+      - name: Unit tests
+        run: ctest --test-dir receiver/build --output-on-failure
+
+      # Copy every MSYS2 DLL the exe links (directly or indirectly) next to it, so the
+      # folder runs on a PC without MSYS2. Licences of the bundled FFmpeg build apply;
+      # this is a test artifact, not a release (see receiver/README.md).
+      - name: Bundle exe with its DLLs
+        run: |
+          mkdir -p dist
+          cp receiver/build/saigocam-receiver.exe dist/
+          for dll in $(ldd dist/saigocam-receiver.exe | grep -i '/ucrt64/' | awk '{print $3}'); do
+            cp "$dll" dist/
+          done
+          cp receiver/README.md dist/
+          ls -la dist
+
+      - name: Upload receiver
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaigoCam-receiver-windows
+          path: dist/

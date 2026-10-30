@@ -1,0 +1,51 @@
+name: Bug report
+description: Something doesn't work
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SaigoCam version or commit
+      placeholder: e.g. 1.0, or the CI run / commit hash the APK came from
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: e.g. Pixel 7, Android 15
+    validations:
+      required: true
+  - type: dropdown
+    id: link
+    attributes:
+      label: Connection
+      options:
+        - Wi-Fi
+        - USB (adb forward)
+        - Other / not relevant
+    validations:
+      required: true
+  - type: input
+    id: viewer
+    attributes:
+      label: Viewer on the PC
+      placeholder: e.g. OBS 31 VLC Video Source, OBS Media Source, ffplay, saigocam-receiver
+  - type: input
+    id: settings
+    attributes:
+      label: Stream settings
+      placeholder: e.g. 1280x720, 60 fps, password on, keyframe-every-frame off
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: "`adb logcat` output around the problem helps a lot. Remove your stream password if it appears."
+      render: text

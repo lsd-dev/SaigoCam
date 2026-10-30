@@ -1,6 +1,5 @@
 {
   "name": "SaigoCam",
-  "description": "A minimal, production-ready Android application that works as a simple DroidCam-style camera source for OBS over Wi-Fi and USB.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "Open-source, low-latency Android camera source for OBS Studio and other RTSP clients, over Wi-Fi or USB.",
+  "_note": "Leftover from the AI Studio template this project started from. Safe to delete; nothing in the build reads it."
 }

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SaigoCam Latency Clock</title>
+<!--
+  Glass-to-glass latency test for SaigoCam. See docs/LATENCY.md for the full procedure.
+  Point the phone at the clock, put the OBS preview next to it, take a screenshot,
+  then type the two clock readings visible in the screenshot into the form below.
+  Self-contained: no network requests, nothing leaves this page.
+-->
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #000000;
+    --muted: #555555;
+    --line: #cccccc;
+    --accent: #0b5cff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111111;
+      --fg: #ffffff;
+      --muted: #aaaaaa;
+      --line: #444444;
+      --accent: #6d9bff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, sans-serif;
+  }
+  /* The clock is filmed by the phone, so it stays black-on-white regardless of theme */
+  #clockPanel {
+    background: #ffffff;
+    color: #000000;
+    border: 2px solid #000000;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  #clock {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: clamp(48px, 14vw, 200px);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  #fps { font-size: 14px; color: #555555; margin-top: 8px; }
+  h1 { font-size: 20px; margin: 24px 0 8px; }
+  p, li { color: var(--muted); line-height: 1.5; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label { display: flex; flex-direction: column; font-size: 14px; gap: 4px; }
+  input {
+    font: inherit;
+    padding: 8px;
+    width: 160px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  button {
+    font: inherit;
+    padding: 8px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #ffffff;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--accent); }
+  #error { color: #d00000; min-height: 1.5em; }
+  #stats { display: flex; flex-wrap: wrap; gap: 24px; margin: 12px 0; }
+  .stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; max-width: 640px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px; text-align: right; font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="clockPanel">
+    <div id="clock">00.000</div>
+    <div id="fps">display: — Hz</div>
+  </div>
+
+  <h1>Record a sample</h1>
+  <p>From one screenshot, enter the real clock reading and the clock reading shown inside the OBS preview. Readings are seconds (00.000 to 99.999); wrap-around at 100 s is handled.</p>
+  <form id="sampleForm">
+    <label>Real clock (s)<input id="real" inputmode="decimal" placeholder="42.318" required></label>
+    <label>Clock in OBS preview (s)<input id="seen" inputmode="decimal" placeholder="42.201" required></label>
+    <label>Label (optional)<input id="label" placeholder="720p30 wifi vlc"></label>
+    <button type="submit">Add sample</button>
+  </form>
+  <div id="error"></div>
+
+  <div id="stats">
+    <div class="stat">Samples<b id="count">0</b></div>
+    <div class="stat">Median<b id="median">—</b></div>
+    <div class="stat">p90<b id="p90">—</b></div>
+    <div class="stat">Min<b id="min">—</b></div>
+    <div class="stat">Max<b id="max">—</b></div>
+  </div>
+  <p>
+    <button type="button" class="secondary" id="copyCsv">Copy as CSV</button>
+    <button type="button" class="secondary" id="clear">Clear samples</button>
+  </p>
+  <table>
+    <thead><tr><th>#</th><th>Label</th><th>Real</th><th>Seen</th><th>Latency (ms)</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+  "use strict";
+  const PERIOD_MS = 100000; // clock wraps every 100 s
+
+  // Clock: redrawn on every display refresh so the reading is as fresh as the screen allows
+  const clockEl = document.getElementById("clock");
+  const fpsEl = document.getElementById("fps");
+  let frames = 0;
+  let fpsWindowStart = performance.now();
+  function tick(now) {
+    const ms = Math.floor(now) % PERIOD_MS;
+    clockEl.textContent = (ms / 1000).toFixed(3).padStart(6, "0");
+    frames++;
+    if (now - fpsWindowStart >= 1000) {
+      fpsEl.textContent = "display: " + Math.round(frames * 1000 / (now - fpsWindowStart)) + " Hz (accuracy about ±1 refresh)";
+      frames = 0;
+      fpsWindowStart = now;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // Samples are kept in memory only; reloading the page clears them
+  const samples = [];
+  const errorEl = document.getElementById("error");
+
+  function parseSeconds(text) {
+    const value = Number(String(text).trim().replace(",", "."));
+    if (!Number.isFinite(value) || value < 0 || value >= PERIOD_MS / 1000) return null;
+    return Math.round(value * 1000);
+  }
+
+  function percentile(sorted, p) {
+    // Nearest-rank percentile; fine for the small sample counts used here
+    const rank = Math.max(1, Math.ceil(p * sorted.length));
+    return sorted[rank - 1];
+  }
+
+  function render() {
+    const rows = document.getElementById("rows");
+    rows.replaceChildren(...samples.map((s, i) => {
+      const tr = document.createElement("tr");
+      [i + 1, s.label, (s.real / 1000).toFixed(3), (s.seen / 1000).toFixed(3), s.latency].forEach(v => {
+        const td = document.createElement("td");
+        td.textContent = v; // textContent, never innerHTML: labels are user input
+        tr.appendChild(td);
+      });
+      return tr;
+    }));
+    const sorted = samples.map(s => s.latency).sort((a, b) => a - b);
+    const set = (id, v) => { document.getElementById(id).textContent = v; };
+    set("count", sorted.length);
+    if (sorted.length === 0) {
+      ["median", "p90", "min", "max"].forEach(id => set(id, "—"));
+      return;
+    }
+    set("median", percentile(sorted, 0.5) + " ms");
+    set("p90", percentile(sorted, 0.9) + " ms");
+    set("min", sorted[0] + " ms");
+    set("max", sorted[sorted.length - 1] + " ms");
+  }
+
+  document.getElementById("sampleForm").addEventListener("submit", event => {
+    event.preventDefault();
+    const real = parseSeconds(document.getElementById("real").value);
+    const seen = parseSeconds(document.getElementById("seen").value);
+    if (real === null || seen === null) {
+      errorEl.textContent = "Enter both readings as seconds between 0 and 99.999, e.g. 42.318.";
+      return;
+    }
+    // The camera image always shows an earlier time; wrap past 100 s if needed
+    const latency = (real - seen + PERIOD_MS) % PERIOD_MS;
+    if (latency > 10000) {
+      errorEl.textContent = "That's over 10 s. Check that the two readings aren't swapped.";
+      return;
+    }
+    errorEl.textContent = "";
+    samples.push({ real, seen, latency, label: document.getElementById("label").value.trim() });
+    document.getElementById("real").value = "";
+    document.getElementById("seen").value = "";
+    document.getElementById("real").focus();
+    render();
+  });
+
+  document.getElementById("copyCsv").addEventListener("click", async () => {
+    const quote = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const lines = ["index,label,real_s,seen_s,latency_ms"].concat(
+      samples.map((s, i) => [i + 1, quote(s.label), (s.real / 1000).toFixed(3), (s.seen / 1000).toFixed(3), s.latency].join(","))
+    );
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      errorEl.textContent = "Copied " + samples.length + " samples.";
+    } catch (e) {
+      errorEl.textContent = "Clipboard unavailable here. Copy the table manually.";
+    }
+  });
+
+  document.getElementById("clear").addEventListener("click", () => {
+    samples.length = 0;
+    render();
+  });
+</script>
+</body>
+</html>

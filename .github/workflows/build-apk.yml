@@ -21,10 +21,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # Wrapper validation stays on: it checks the committed gradle-wrapper.jar
+      # against Gradle's published checksums, guarding against a tampered jar.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: false
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -32,8 +32,28 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      # Uploaded before tests so a test failure still leaves an APK to try on a phone
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: SaigoCam-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      # Report-only until the existing lint findings have been triaged;
+      # remove continue-on-error once lint is clean.
+      - name: Run lint
+        run: ./gradlew :app:lintDebug --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaigoCam-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore

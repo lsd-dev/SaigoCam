@@ -1,4 +1,4 @@
-package com.example.ui.theme
+package io.github.lsd_dev.saigocam.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

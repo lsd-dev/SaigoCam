@@ -1,4 +1,4 @@
-package com.example
+package io.github.lsd_dev.saigocam
 
 import android.Manifest
 import android.content.ComponentName
@@ -6,8 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.IBinder
 import android.view.SurfaceHolder
@@ -25,22 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import com.example.ui.theme.MyApplicationTheme
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import java.net.Inet4Address
-import java.net.NetworkInterface
+import io.github.lsd_dev.saigocam.ui.theme.SaigoCamTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -65,38 +56,39 @@ class MainActivity : ComponentActivity() {
         // Keep the screen on while the app is running/visible
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
-        val requiredPermissions = mutableListOf(
+        // Only the camera is required; notifications are requested but optional,
+        // since the foreground service still runs without them
+        val requestedPermissions = mutableListOf(
             Manifest.permission.CAMERA
         )
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            requiredPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            requestedPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val isCameraGranted = {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         }
 
+        // Bind only; the service starts itself while streaming (see StreamingService)
         val intent = Intent(this, StreamingService::class.java)
-        startService(intent) // Start as sticky
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
 
         setContent {
-            MyApplicationTheme {
+            SaigoCamTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    var hasPermissions by remember {
-                        mutableStateOf(requiredPermissions.all {
-                            ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED
-                        })
-                    }
+                    var hasPermissions by remember { mutableStateOf(isCameraGranted()) }
 
                     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
                         ActivityResultContracts.RequestMultiplePermissions()
-                    ) { permissions ->
-                        hasPermissions = permissions.values.all { it }
+                    ) {
+                        hasPermissions = isCameraGranted()
                     }
 
                     LaunchedEffect(Unit) {
                         if (!hasPermissions) {
-                            launcher.launch(requiredPermissions.toTypedArray())
+                            launcher.launch(requestedPermissions.toTypedArray())
                         }
                     }
 
@@ -104,17 +96,11 @@ class MainActivity : ComponentActivity() {
                     if (hasPermissions && bound && streamingService != null) {
                         SaigoCamScreen(streamingService!!)
                     } else {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (!hasPermissions) {
-                                    Text("Camera permission is required to stream.", modifier = Modifier.padding(16.dp))
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Button(onClick = { launcher.launch(requiredPermissions.toTypedArray()) }) {
-                                        Text("Grant Permissions")
-                                    }
-                                } else {
-                                    CircularProgressIndicator()
-                                }
+                        if (!hasPermissions) {
+                            PermissionRequiredContent(onGrantClick = { launcher.launch(requestedPermissions.toTypedArray()) })
+                        } else {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                CircularProgressIndicator()
                             }
                         }
                     }
@@ -133,9 +119,34 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+fun PermissionRequiredContent(onGrantClick: () -> Unit) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Camera permission is required to stream.", modifier = Modifier.padding(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onGrantClick) {
+                Text("Grant Permissions")
+            }
+        }
+    }
+}
+
+@Composable
 fun SaigoCamScreen(service: StreamingService) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Stream", "Setup Guide")
+
+    // Sustained performance mode caps clocks at a level the phone can hold without
+    // thermal throttling: slightly lower peak speed, but steadier frame times and latency.
+    // Only applies while this window has focus, and only on devices that support it.
+    val isStreaming by service.isStreaming.collectAsState()
+    val activity = LocalContext.current as? android.app.Activity
+    LaunchedEffect(isStreaming) {
+        val powerManager = activity?.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (powerManager?.isSustainedPerformanceModeSupported == true) {
+            activity?.window?.setSustainedPerformanceMode(isStreaming)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTab) {
@@ -162,7 +173,6 @@ fun SaigoCamScreen(service: StreamingService) {
 fun StreamContent(service: StreamingService) {
     val isStreaming by service.isStreaming.collectAsState(initial = false)
     val connectionStatus by service.connectionStatus.collectAsState(initial = "Disconnected")
-    var surfaceView by remember { mutableStateOf<OpenGlView?>(null) }
 
     Column(
         modifier = Modifier
@@ -183,29 +193,19 @@ fun StreamContent(service: StreamingService) {
                     OpenGlView(ctx).apply {
                         holder.addCallback(object : SurfaceHolder.Callback {
                             override fun surfaceCreated(holder: SurfaceHolder) {
-                                service.initServer(ctx)
+                                service.initServer()
                                 try {
                                     service.rtspServerCamera2?.replaceView(this@apply)
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
-                                if (service.rtspServerCamera2?.isOnPreview == false) {
-                                    service.rtspServerCamera2?.startPreview()
-                                }
+                                service.ensurePreview()
                             }
                             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
                             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                try {
-                                    service.rtspServerCamera2?.replaceView(ctx)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                                if (!isStreaming) {
-                                    service.rtspServerCamera2?.stopPreview()
-                                }
+                                service.onPreviewSurfaceDestroyed()
                             }
                         })
-                        surfaceView = this
                     }
                 },
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
@@ -213,13 +213,7 @@ fun StreamContent(service: StreamingService) {
 
             // Switch Camera Overlay Button
             IconButton(
-                onClick = { 
-                    try {
-                        service.rtspServerCamera2?.switchCamera()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                },
+                onClick = { service.switchCamera() },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
@@ -258,6 +252,15 @@ fun StreamContent(service: StreamingService) {
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+                val thermalWarning by service.thermalWarning.collectAsState()
+                thermalWarning?.let {
+                    Text(
+                        text = it,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
 
@@ -273,7 +276,7 @@ fun StreamContent(service: StreamingService) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Resolution Selection", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("Video Settings", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -298,6 +301,33 @@ fun StreamContent(service: StreamingService) {
                             )
                         }
                     }
+                }
+
+                // Frame rate: 60 fps halves the wait between frames (~17 ms vs ~33 ms)
+                val fpsOptions by service.fpsOptions.collectAsState()
+                val selectedFps by service.selectedFps.collectAsState()
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    fpsOptions.forEach { fps ->
+                        if (fps == selectedFps) {
+                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("$fps fps") }
+                        } else {
+                            OutlinedButton(onClick = { service.setFps(fps) }, modifier = Modifier.weight(1f)) { Text("$fps fps") }
+                        }
+                    }
+                }
+
+                // Legacy all-intra mode, for A/B latency tests only
+                val keyframeEveryFrame by service.keyframeEveryFrame.collectAsState()
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Keyframe every frame (for latency tests)",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(checked = keyframeEveryFrame, onCheckedChange = { service.setKeyframeEveryFrame(it) })
                 }
             }
         }
@@ -334,6 +364,11 @@ fun SetupGuideContent(service: StreamingService) {
     val context = LocalContext.current
     val ipAddress = getLocalIpAddress(context)
     val scrollState = androidx.compose.foundation.rememberScrollState()
+    val authEnabled by service.authEnabled.collectAsState()
+    val authPassword by service.authPassword.collectAsState()
+    val user = if (authEnabled) service.authUser else null
+    val wifiUrl = StreamSettings.streamUrl(ipAddress, service.port, user, authPassword)
+    val usbUrl = StreamSettings.streamUrl("127.0.0.1", service.port, user, authPassword)
 
     Column(
         modifier = Modifier
@@ -344,6 +379,29 @@ fun SetupGuideContent(service: StreamingService) {
         Text("OBS Setup Guide", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Stream password
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Require Password", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    Switch(checked = authEnabled, onCheckedChange = { service.setAuthEnabled(it) })
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                if (authEnabled) {
+                    Text("Username: ${service.authUser}")
+                    Text("Password: $authPassword", fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    TextButton(onClick = { service.regeneratePassword() }) {
+                        Text("Generate New Password")
+                    }
+                    Text("The URLs below already include these credentials. Changes apply to new connections only.\n\n*Note: RTSP passwords are not encrypted on the network. Use this on networks you trust.*", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("Anyone on the same Wi-Fi network can view your camera. Only turn this off on a private network.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Wi-Fi Setup (VLC Video Source)
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -352,7 +410,7 @@ fun SetupGuideContent(service: StreamingService) {
                 Text("VLC is recommended for instant auto-connecting.\n\n• Install VLC on your PC and restart OBS.\n• Open OBS Studio -> Sources -> '+' -> 'VLC Video Source'.\n• CHECK 'Loop Playlist' (Required for auto-connect).\n• Set 'Network Caching' to 100ms (lowest possible).\n• In the Playlist box, click '+' -> 'Add Path/URL'.\n• Enter the exact URL below.\n\n*Note: If the app was recently closed or OBS was just opened, double-click the VLC source and click 'OK' to wake it up.*\n\n*Pro-Tip: Sometimes just clicking the \"Eye\" icon (hide/unhide) next to the source in OBS is enough to wake it up, which is much faster than opening properties.*")
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("VLC Source URL:", fontWeight = FontWeight.SemiBold)
-                Text("rtsp://$ipAddress:1935", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(wifiUrl, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -366,7 +424,7 @@ fun SetupGuideContent(service: StreamingService) {
                 Text("• Ensure PC and Phone are on the same Wi-Fi.\n• In the Stream tab, tap 'START STREAMING'.\n• Open OBS Studio -> Sources -> '+' -> 'Media Source'.\n• Uncheck 'Local File'.\n• Uncheck 'Use hardware decoding when available'.\n• Set 'Network Buffering' to 0 MB.\n• Set Input to the URL below.\n\n*Note: If the feed doesn't show up immediately, double-click the Media Source in OBS to open Properties and click 'OK' to force it to connect.*\n\n*Pro-Tip: Sometimes just clicking the \"Eye\" icon (hide/unhide) next to the source in OBS is enough to wake it up, which is much faster than opening properties.*")
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Media Source URL:", fontWeight = FontWeight.SemiBold)
-                Text("rtsp://$ipAddress:1935", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(wifiUrl, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -384,7 +442,7 @@ fun SetupGuideContent(service: StreamingService) {
                 Text("• Start streaming in this app.\n• Use the USB URL below in OBS with either the Media Source or VLC Source method.")
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("USB URL:", fontWeight = FontWeight.SemiBold)
-                Text("rtsp://127.0.0.1:1935", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(usbUrl, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
 

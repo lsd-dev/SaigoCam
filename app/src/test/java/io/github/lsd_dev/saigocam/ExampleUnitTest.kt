@@ -1,4 +1,4 @@
-package com.example
+package io.github.lsd_dev.saigocam
 
 import org.junit.Assert.*
 import org.junit.Test

@@ -1,0 +1,79 @@
+name: Latency measurement
+description: Share glass-to-glass numbers measured with docs/LATENCY.md
+labels: ["latency-data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Measured numbers are how this project makes claims. Please follow
+        [docs/LATENCY.md](../blob/main/docs/LATENCY.md): at least 20 samples, median and p90, one setting changed at a time.
+  - type: input
+    id: version
+    attributes:
+      label: SaigoCam version or commit
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: Resolution, fps and keyframe mode
+      placeholder: e.g. 1280x720, 30 fps, keyframe on connect (default)
+    validations:
+      required: true
+  - type: dropdown
+    id: link
+    attributes:
+      label: Connection
+      options:
+        - Wi-Fi 5 GHz
+        - Wi-Fi 2.4 GHz
+        - Wi-Fi (band unknown)
+        - USB (adb forward)
+    validations:
+      required: true
+  - type: input
+    id: viewer
+    attributes:
+      label: Viewer and its buffer settings
+      placeholder: e.g. OBS 31 VLC Video Source, Network Caching 100 ms
+    validations:
+      required: true
+  - type: input
+    id: pc
+    attributes:
+      label: PC OS and display refresh rate
+      placeholder: e.g. Windows 11, 144 Hz
+  - type: input
+    id: samples
+    attributes:
+      label: Number of samples
+    validations:
+      required: true
+  - type: input
+    id: median
+    attributes:
+      label: Median latency (ms)
+    validations:
+      required: true
+  - type: input
+    id: p90
+    attributes:
+      label: p90 latency (ms)
+    validations:
+      required: true
+  - type: textarea
+    id: csv
+    attributes:
+      label: Raw samples (CSV from the clock page)
+      render: csv
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything unusual (dropped frames, reconnects, thermal warning shown, etc.)

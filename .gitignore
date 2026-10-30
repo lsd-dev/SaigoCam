@@ -16,3 +16,13 @@
 local.properties
 .env
 debug.keystore
+
+# Signing material must never be committed
+*.jks
+*.keystore
+
+# Desktop receiver build output
+/receiver/build/
+
+# Local assistant/tooling state
+/.claude/
